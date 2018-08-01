@@ -4,8 +4,14 @@ import (
 	"log"
 	"net/http"
 
+	"encoding/json"
 	"github.com/gorilla/websocket"
 )
+
+type Message struct {
+	Type string `json:"type"`
+	Data string `json:"data"`
+}
 
 var upgrader = websocket.Upgrader{} // use default options
 
@@ -29,8 +35,22 @@ func echo(w http.ResponseWriter, r *http.Request) {
 			log.Println("read:", err)
 			break
 		}
+
+		var msg Message
+		err = json.Unmarshal(message, &msg)
+		if err != nil {
+			log.Println("unmarshal:", err)
+			break
+		}
+
+		msg.Type = "frame"
+		newMsg, err := json.Marshal(msg)
+		if err != nil {
+			log.Println("marshal:", err)
+			break
+		}
 		log.Printf("recv: %s", message)
-		err = c.WriteMessage(mt, message)
+		err = c.WriteMessage(mt, newMsg)
 		if err != nil {
 			log.Println("write:", err)
 			break
