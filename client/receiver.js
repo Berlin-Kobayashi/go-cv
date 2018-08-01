@@ -1,5 +1,5 @@
 // MODIFY THIS TO THE APPROPRIATE URL IF IT IS NOT BEING RUN LOCALLY
-var socket = io.connect('http://localhost:8080');
+var socket = io('http://localhost:8080');
 
 var canvasFace = document.getElementById('canvas-face');
 var context = canvasFace.getContext('2d');
