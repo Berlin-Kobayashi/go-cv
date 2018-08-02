@@ -4,8 +4,11 @@ import (
 	"log"
 	"net/http"
 
+	"encoding/base64"
 	"encoding/json"
 	"github.com/gorilla/websocket"
+	"gocv.io/x/gocv"
+	"strings"
 )
 
 type Message struct {
@@ -15,7 +18,7 @@ type Message struct {
 
 var upgrader = websocket.Upgrader{} // use default options
 
-func echo(w http.ResponseWriter, r *http.Request) {
+func socketHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", r.Header.Get("Origin"))
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Credentials", "true")
@@ -36,6 +39,8 @@ func echo(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 
+		log.Printf("recv: %s", message)
+
 		var msg Message
 		err = json.Unmarshal(message, &msg)
 		if err != nil {
@@ -43,17 +48,43 @@ func echo(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 
-		msg.Type = "frame"
-		newMsg, err := json.Marshal(msg)
-		if err != nil {
-			log.Println("marshal:", err)
-			break
-		}
-		log.Printf("recv: %s", message)
-		err = c.WriteMessage(mt, newMsg)
-		if err != nil {
-			log.Println("write:", err)
-			break
+		if msg.Type == "img" {
+
+			encodedData := strings.Split(msg.Data, ",")[1]
+
+			base64data, err := base64.StdEncoding.DecodeString(encodedData)
+			if err != nil {
+				log.Println("base64 decode:", err)
+				break
+			}
+
+			img, err := gocv.IMDecode(base64data, gocv.IMReadColor)
+			if err != nil {
+				log.Println("decode:", err)
+				break
+			}
+
+			encoded, err := gocv.IMEncode(".jpg", img)
+			if err != nil {
+				log.Println("encode:", err)
+				break
+			}
+
+			base64Encoded := base64.StdEncoding.EncodeToString(encoded)
+
+			msg.Data = "data:image/jpeg;base64," + base64Encoded
+
+			msg.Type = "frame"
+			newMsg, err := json.Marshal(msg)
+			if err != nil {
+				log.Println("marshal:", err)
+				break
+			}
+			err = c.WriteMessage(mt, newMsg)
+			if err != nil {
+				log.Println("write:", err)
+				break
+			}
 		}
 	}
 }
@@ -63,6 +94,6 @@ func main() {
 		return true
 	}
 	log.SetFlags(0)
-	http.HandleFunc("/", echo)
+	http.HandleFunc("/", socketHandler)
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
