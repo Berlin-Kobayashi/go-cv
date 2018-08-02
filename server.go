@@ -64,7 +64,10 @@ func socketHandler(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 
-			encoded, err := gocv.IMEncode(".jpg", img)
+			gray := img.Clone()
+			gocv.CvtColor(img, &gray, gocv.ColorBGRToGray)
+
+			encoded, err := gocv.IMEncode(".jpg", gray)
 			if err != nil {
 				log.Println("encode:", err)
 				break
