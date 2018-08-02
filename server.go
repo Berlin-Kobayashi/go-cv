@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"github.com/gorilla/websocket"
 	"gocv.io/x/gocv"
+	"image"
 	"strings"
 )
 
@@ -67,7 +68,16 @@ func socketHandler(w http.ResponseWriter, r *http.Request) {
 			gray := img.Clone()
 			gocv.CvtColor(img, &gray, gocv.ColorBGRToGray)
 
-			encoded, err := gocv.IMEncode(".jpg", gray)
+			blur := gray.Clone()
+			gocv.GaussianBlur(gray, &blur, image.Point{5, 5}, 0, 0, gocv.BorderConstant)
+
+			canny := blur.Clone()
+			gocv.Canny(blur, &canny, 10, 70)
+
+			bin := canny.Clone()
+			gocv.Threshold(canny, &bin, 70, 255, gocv.ThresholdBinaryInv)
+
+			encoded, err := gocv.IMEncode(".jpg", bin)
 			if err != nil {
 				log.Println("encode:", err)
 				break
