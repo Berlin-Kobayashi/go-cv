@@ -17,89 +17,124 @@ type Message struct {
 	Data string `json:"data"`
 }
 
-var upgrader = websocket.Upgrader{} // use default options
+var upgrader = websocket.Upgrader{}
 
 func socketHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", r.Header.Get("Origin"))
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Credentials", "true")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Accept, Authorization, User-Agent, Connection")
-	w.Header().Set("Content-Type", "application/json")
+	log.Print("got request")
+	setResponseHeaders(w.Header(), r.Header.Get("Origin"))
 
-	log.Print("got request:")
 	c, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Print("upgrade:", err)
 		return
 	}
 	defer c.Close()
+	consumeMessages(c)
+}
+
+func setResponseHeaders(header http.Header, origin string) {
+	header.Set("Access-Control-Allow-Origin", origin)
+	header.Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+	header.Set("Access-Control-Allow-Credentials", "true")
+	header.Set("Access-Control-Allow-Headers", "Content-Type, Accept, Authorization, User-Agent, Connection")
+	header.Set("Content-Type", "application/json")
+}
+
+func consumeMessages(c *websocket.Conn) {
 	for {
-		mt, message, err := c.ReadMessage()
+		msg, err := receiveMessage(c)
 		if err != nil {
-			log.Println("read:", err)
-			break
-		}
-
-		log.Printf("recv: %s", message)
-
-		var msg Message
-		err = json.Unmarshal(message, &msg)
-		if err != nil {
-			log.Println("unmarshal:", err)
+			log.Println("receive:", err)
 			break
 		}
 
 		if msg.Type == "img" {
-
-			encodedData := strings.Split(msg.Data, ",")[1]
-
-			base64data, err := base64.StdEncoding.DecodeString(encodedData)
-			if err != nil {
-				log.Println("base64 decode:", err)
-				break
-			}
-
-			img, err := gocv.IMDecode(base64data, gocv.IMReadColor)
+			img, err := decodeImage(msg.Data)
 			if err != nil {
 				log.Println("decode:", err)
 				break
 			}
 
-			gray := img.Clone()
-			gocv.CvtColor(img, &gray, gocv.ColorBGRToGray)
+			sketch := sketchifyImage(img)
 
-			blur := gray.Clone()
-			gocv.GaussianBlur(gray, &blur, image.Point{5, 5}, 0, 0, gocv.BorderConstant)
-
-			canny := blur.Clone()
-			gocv.Canny(blur, &canny, 10, 70)
-
-			bin := canny.Clone()
-			gocv.Threshold(canny, &bin, 70, 255, gocv.ThresholdBinaryInv)
-
-			encoded, err := gocv.IMEncode(".jpg", bin)
+			err = sendImage(sketch, c)
 			if err != nil {
-				log.Println("encode:", err)
-				break
-			}
-
-			base64Encoded := base64.StdEncoding.EncodeToString(encoded)
-
-			msg.Data = "data:image/jpeg;base64," + base64Encoded
-
-			msg.Type = "frame"
-			newMsg, err := json.Marshal(msg)
-			if err != nil {
-				log.Println("marshal:", err)
-				break
-			}
-			err = c.WriteMessage(mt, newMsg)
-			if err != nil {
-				log.Println("write:", err)
+				log.Println("send:", err)
 				break
 			}
 		}
 	}
+}
+
+func receiveMessage(c *websocket.Conn) (Message, error) {
+	_, message, err := c.ReadMessage()
+	if err != nil {
+		return Message{}, err
+	}
+
+	var msg Message
+	err = json.Unmarshal(message, &msg)
+	if err != nil {
+		return Message{}, err
+	}
+
+	return msg, nil
+}
+
+func decodeImage(data string) (gocv.Mat, error) {
+	encodedData := strings.Split(data, ",")[1]
+
+	base64data, err := base64.StdEncoding.DecodeString(encodedData)
+	if err != nil {
+		return gocv.Mat{}, err
+	}
+
+	return gocv.IMDecode(base64data, gocv.IMReadColor)
+}
+
+func sendImage(src gocv.Mat, c *websocket.Conn) error {
+	encoded, err := encodeImage(src)
+	if err != nil {
+		return err
+	}
+
+	msg, err := json.Marshal(Message{Type: "frame", Data: encoded})
+	if err != nil {
+		return err
+	}
+	err = c.WriteMessage(websocket.TextMessage, msg)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func encodeImage(src gocv.Mat) (string, error) {
+	encoded, err := gocv.IMEncode(".jpg", src)
+	if err != nil {
+		return "", err
+	}
+
+	base64Encoded := base64.StdEncoding.EncodeToString(encoded)
+
+	return "data:image/jpeg;base64," + base64Encoded, nil
+}
+
+func sketchifyImage(src gocv.Mat) gocv.Mat {
+	gray := src.Clone()
+	gocv.CvtColor(src, &gray, gocv.ColorBGRToGray)
+
+	blur := gray.Clone()
+	gocv.GaussianBlur(gray, &blur, image.Point{5, 5}, 0, 0, gocv.BorderConstant)
+
+	canny := blur.Clone()
+	gocv.Canny(blur, &canny, 10, 70)
+
+	bin := canny.Clone()
+	gocv.Threshold(canny, &bin, 70, 255, gocv.ThresholdBinaryInv)
+
+	return bin
 }
 
 func main() {
