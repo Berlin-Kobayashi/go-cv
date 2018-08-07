@@ -144,8 +144,11 @@ func detectShapes(src gocv.Mat) gocv.Mat {
 	gray := src.Clone()
 	gocv.CvtColor(src, &gray, gocv.ColorBGRToGray)
 
-	bin := gray.Clone()
-	gocv.Threshold(gray, &bin, 70, 255, gocv.ThresholdBinary)
+	blur := gray.Clone()
+	gocv.GaussianBlur(gray, &blur, image.Point{5, 5}, 0, 0, gocv.BorderConstant)
+
+	bin := blur.Clone()
+	gocv.Threshold(blur, &bin, 70, 255, gocv.ThresholdBinary)
 
 	contours := gocv.FindContours(bin, gocv.RetrievalList, gocv.ChainApproxSimple)
 	fmt.Println("Found " + strconv.Itoa(len(contours)))
