@@ -6,9 +6,12 @@ import (
 
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"github.com/gorilla/websocket"
 	"gocv.io/x/gocv"
 	"image"
+	"image/color"
+	"strconv"
 	"strings"
 )
 
@@ -55,9 +58,9 @@ func consumeMessages(c *websocket.Conn) {
 				break
 			}
 
-			sketch := sketchifyImage(img)
+			res := detectShapes(img)
 
-			err = sendImage(sketch, c)
+			err = sendImage(res, c)
 			if err != nil {
 				log.Println("send:", err)
 				break
@@ -121,7 +124,7 @@ func encodeImage(src gocv.Mat) (string, error) {
 	return "data:image/jpeg;base64," + base64Encoded, nil
 }
 
-func sketchifyImage(src gocv.Mat) gocv.Mat {
+func sketchify(src gocv.Mat) gocv.Mat {
 	gray := src.Clone()
 	gocv.CvtColor(src, &gray, gocv.ColorBGRToGray)
 
@@ -135,6 +138,29 @@ func sketchifyImage(src gocv.Mat) gocv.Mat {
 	gocv.Threshold(canny, &bin, 70, 255, gocv.ThresholdBinaryInv)
 
 	return bin
+}
+
+func detectShapes(src gocv.Mat) gocv.Mat {
+	gray := src.Clone()
+	gocv.CvtColor(src, &gray, gocv.ColorBGRToGray)
+
+	bin := gray.Clone()
+	gocv.Threshold(gray, &bin, 70, 255, gocv.ThresholdBinary)
+
+	contours := gocv.FindContours(bin, gocv.RetrievalList, gocv.ChainApproxSimple)
+	fmt.Println("Found " + strconv.Itoa(len(contours)))
+	for _, contour := range contours {
+		//  approx = cv2.approxPolyDP(cnt, 0.01*cv2.arcLength(cnt,True),True)
+		approx := gocv.ApproxPolyDP(contour, 0.03*gocv.ArcLength(contour, true), true)
+
+		if len(approx) == 3 {
+			fmt.Println("Found triangle!")
+			//cv2.drawContours(image,[cnt],0,(0,255,0),-1)
+			gocv.DrawContours(&src, [][]image.Point{approx}, 0, color.RGBA{255, 0, 0, 255}, -1)
+		}
+	}
+
+	return src
 }
 
 func main() {
